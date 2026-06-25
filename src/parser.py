@@ -17,13 +17,11 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from bs4 import BeautifulSoup, Tag
 
 log = logging.getLogger(__name__)
-
-FIXED_PRICE = "99"
 
 DATE_RANGE_RE = re.compile(r"(\d{1,2}/\d{1,2}\s*[-~–]\s*\d{1,2}/\d{1,2})")
 # 「6/18 週四 Kobo99選書:」
@@ -38,7 +36,20 @@ class Book:
     author: str | None = None
     publisher: str | None = None
     sale_date: str | None = None         # 例如 "6/18 週四"
-    price: str = FIXED_PRICE
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Book":
+        return cls(
+            title=d["title"],
+            url=d["url"],
+            cover=d.get("cover"),
+            author=d.get("author"),
+            publisher=d.get("publisher"),
+            sale_date=d.get("sale_date"),
+        )
 
 
 @dataclass
@@ -46,6 +57,21 @@ class WeeklyPost:
     title: str
     date_range: str | None
     books: list[Book] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "title": self.title,
+            "date_range": self.date_range,
+            "books": [b.to_dict() for b in self.books],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "WeeklyPost":
+        return cls(
+            title=d["title"],
+            date_range=d.get("date_range"),
+            books=[Book.from_dict(b) for b in d.get("books", [])],
+        )
 
 
 def _abs_url(href: str) -> str:

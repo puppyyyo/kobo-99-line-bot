@@ -8,7 +8,8 @@ from playwright.sync_api import sync_playwright
 
 log = logging.getLogger(__name__)
 
-URL_TEMPLATE = "https://www.kobo.com/zh/blog/weekly-dd99-{year}-w{week:02d}"
+# Kobo 的網址用不補零的週數：...-w1 而不是 ...-w01
+URL_TEMPLATE = "https://www.kobo.com/zh/blog/weekly-dd99-{year}-w{week}"
 
 
 def current_iso_week(today: date | None = None) -> tuple[int, int]:
