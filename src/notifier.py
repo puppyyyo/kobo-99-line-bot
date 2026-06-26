@@ -145,8 +145,8 @@ def _bubble(book: Book) -> dict:
     }
 
 
-def push_books(books: list[Book], header_text: str) -> None:
-    """header_text 為部落格 h1 標題，會作為第一則純文字訊息。"""
+def push_books(books: list[Book], header_text: str, blog_url: str | None = None) -> None:
+    """header_text 為部落格 h1 標題，blog_url 會附在標題下方一行。"""
     if not books:
         log.warning("push_books called with empty list")
         return
@@ -154,6 +154,8 @@ def push_books(books: list[Book], header_text: str) -> None:
     bubbles = [_bubble(b) for b in books[:MAX_BUBBLES]]
     if len(books) > MAX_BUBBLES:
         header_text = f"{header_text}\n（共 {len(books)} 本，顯示前 {MAX_BUBBLES} 本）"
+    if blog_url:
+        header_text = f"{header_text}\n{blog_url}"
 
     payload = {
         "to": _user_id(),

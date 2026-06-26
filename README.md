@@ -1,6 +1,6 @@
 # Kobo 一週 99 書單 → LINE Bot
 
-每週自動把 Kobo「一週 99 書單」推到你的 LINE，提醒哪天哪本書 99 元，免得錯過。
+每週三晚上自動把 Kobo「一週 99 書單」推到你的 LINE，提醒哪天哪本書 99 元，免得錯過。
 
 資料來源：<https://www.kobo.com/zh/blog/weekly-dd99-2026-wXX>（網址結尾 `wXX` 為 ISO 週數）
 
@@ -34,12 +34,16 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-啟動後會立刻推一次測試訊息到你 LINE，之後每週一 09:00（台北時間）自動推。
+啟動後會立刻推一次測試訊息到你 LINE，之後每週三 19:00（台北時間）自動推。
 
 ## 常用指令
 
 ```bash
 docker compose logs -f bot                              # 看 log
 rm -f data/last_sent.txt && docker compose restart bot  # 再推一次
+docker compose up -d                                    # 改 .env 後套用（recreate 容器）
 docker compose down                                     # 停掉
 ```
+
+> 改 `.env` 後用 `docker compose up -d` 會 recreate 容器讀新 .env，
+> 不要用 `restart` 只會重啟 process，不會重讀 .env。

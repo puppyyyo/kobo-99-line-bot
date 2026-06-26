@@ -97,7 +97,7 @@ def publish_weekly(label: str) -> None:
 
     header = snap.post.title or f"Kobo {label} 99 元電子書"
     try:
-        push_books(snap.post.books, header_text=header)
+        push_books(snap.post.books, header_text=header, blog_url=snap.url)
         mark_sent(label)
     except Exception as e:
         log.exception("push failed")
