@@ -33,6 +33,16 @@ def _user_id() -> str:
     return os.environ["LINE_USER_ID"]
 
 
+def _post(messages: list[dict], label: str) -> None:
+    """送 push 給單一 user。label 用在 log 上區分呼叫者。"""
+    payload = {"to": _user_id(), "messages": messages}
+    r = requests.post(LINE_PUSH_URL, headers=_headers(), json=payload, timeout=15)
+    if r.status_code >= 300:
+        log.error("LINE push (%s) failed %s: %s", label, r.status_code, r.text)
+        r.raise_for_status()
+    log.info("LINE push (%s) ok", label)
+
+
 def _bubble(book: Book) -> dict:
     cover = book.cover or PLACEHOLDER_COVER
     if cover.startswith("//"):
@@ -157,9 +167,8 @@ def push_books(books: list[Book], header_text: str, blog_url: str | None = None)
     if blog_url:
         header_text = f"{header_text}\n{blog_url}"
 
-    payload = {
-        "to": _user_id(),
-        "messages": [
+    _post(
+        [
             {"type": "text", "text": header_text},
             {
                 "type": "flex",
@@ -167,22 +176,30 @@ def push_books(books: list[Book], header_text: str, blog_url: str | None = None)
                 "contents": {"type": "carousel", "contents": bubbles},
             },
         ],
-    }
-    r = requests.post(LINE_PUSH_URL, headers=_headers(), json=payload, timeout=15)
-    if r.status_code >= 300:
-        log.error("LINE push failed %s: %s", r.status_code, r.text)
-        r.raise_for_status()
-    log.info("LINE push ok, %d books", len(books))
+        label=f"weekly:{len(books)} books",
+    )
+
+
+def push_today_book(book: Book) -> None:
+    """每日推：純文字「快來看看今天特價書籍」+ 單個 Flex bubble。"""
+    _post(
+        [
+            {"type": "text", "text": "快來看看今天特價書籍 ✨"},
+            {
+                "type": "flex",
+                "altText": f"今日 99 元：{book.title}",
+                "contents": _bubble(book),
+            },
+        ],
+        label=f"today:{book.title}",
+    )
 
 
 def push_error(message: str) -> None:
     try:
-        payload = {
-            "to": _user_id(),
-            "messages": [{"type": "text", "text": f"⚠️ Kobo Bot 失敗\n{message}"}],
-        }
-        r = requests.post(LINE_PUSH_URL, headers=_headers(), json=payload, timeout=15)
-        if r.status_code >= 300:
-            log.error("error-notify also failed %s: %s", r.status_code, r.text)
+        _post(
+            [{"type": "text", "text": f"⚠️ Kobo Bot 失敗\n{message}"}],
+            label="error",
+        )
     except Exception:
         log.exception("push_error itself raised")

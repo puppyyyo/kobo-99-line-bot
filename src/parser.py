@@ -41,7 +41,8 @@ class Book:
     cover: str | None = None
     author: str | None = None
     publisher: str | None = None
-    sale_date: str | None = None         # 例如 "6/18 週四"
+    sale_date: str | None = None         # 顯示用，例如 "6/18 週四"
+    sale_date_iso: str | None = None     # 比對用，例如 "2026-06-18"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -55,6 +56,7 @@ class Book:
             author=d.get("author"),
             publisher=d.get("publisher"),
             sale_date=d.get("sale_date"),
+            sale_date_iso=d.get("sale_date_iso"),
         )
 
 
@@ -129,6 +131,28 @@ def _extract_publish_date(soup: BeautifulSoup) -> str | None:
     return f"{int(m.group(3)):04d}-{month:02d}-{int(m.group(2)):02d}"
 
 
+def _sale_date_to_iso(sale_date: str | None, publish_date: str | None) -> str | None:
+    """『6/18 週四』+ publish_date('2026-06-17') → '2026-06-18'。
+
+    跨年規則：sale 月份比 publish 月份小很多（≥6）視為隔年，
+    例如 publish=2025-12-31, sale='1/1' → '2026-01-01'。
+    """
+    if not sale_date or not publish_date:
+        return None
+    md = sale_date.split()[0]  # "6/18 週四" → "6/18"
+    try:
+        m, d = (int(x) for x in md.split("/"))
+        py, pm, _ = (int(x) for x in publish_date.split("-"))
+    except ValueError:
+        return None
+    year = py
+    if m - pm >= 6:        # sale 月遠在 publish 月之前 → 去年
+        year -= 1
+    elif pm - m >= 6:      # sale 月遠在 publish 月之後 → 明年
+        year += 1
+    return f"{year:04d}-{m:02d}-{d:02d}"
+
+
 def _parse_sale_date(content_block: Tag | None) -> str | None:
     if content_block is None:
         return None
@@ -199,6 +223,7 @@ def parse_post(html: str) -> WeeklyPost:
     for bb, sd in zip(book_blocks, sale_dates):
         b = _parse_book_block(bb, sd)
         if b:
+            b.sale_date_iso = _sale_date_to_iso(b.sale_date, publish_date)
             books.append(b)
 
     log.info(

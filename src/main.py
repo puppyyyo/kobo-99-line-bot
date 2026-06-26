@@ -5,24 +5,22 @@ import logging
 import logging.handlers
 import os
 import sys
+from datetime import date
 from pathlib import Path
-
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
-TZ = ZoneInfo("Asia/Taipei")
-
 from . import storage
 from .fetcher import build_url, current_iso_week, fetch_html, previous_iso_week
-from .notifier import push_books, push_error
+from .notifier import push_books, push_error, push_today_book
 from .parser import parse_post
 
+TZ = ZoneInfo("Asia/Taipei")
 LOG_DIR = Path("/app/logs")
 LAST_SENT_FILE = storage.DATA_DIR / "last_sent.txt"
-LAST_HTML_FILE = storage.DATA_DIR / "last.html"
 
 
 def setup_logging() -> None:
@@ -52,7 +50,6 @@ def already_sent(label: str) -> bool:
 
 
 def mark_sent(label: str) -> None:
-    storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
     LAST_SENT_FILE.write_text(label, encoding="utf-8")
 
 
@@ -70,8 +67,6 @@ def refresh_weekly() -> str | None:
             log.warning("fetch failed for %s: %s", url, e)
             last_err = str(e)
             continue
-        storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        LAST_HTML_FILE.write_text(html, encoding="utf-8")
         post = parse_post(html)
         if post.books:
             label = f"{y}-w{w:02d}"
@@ -116,6 +111,37 @@ def run_once(force: bool = False) -> None:
     publish_weekly(new_label)
 
 
+def push_today() -> None:
+    """每日 09:00：找今天日期對應的書，推單本 Flex bubble。找不到就跳過不推。"""
+    today_iso = date.today().isoformat()
+    label = week_label()
+    snap = storage.load(label)
+    if snap is None:
+        log.info("today=%s: no cache for %s, refreshing", today_iso, label)
+        new_label = refresh_weekly()
+        if new_label is None:
+            log.warning("today=%s: refresh failed, skip", today_iso)
+            return
+        snap = storage.load(new_label)
+        if snap is None:
+            log.warning("today=%s: still no cache after refresh, skip", today_iso)
+            return
+
+    today_book = next(
+        (b for b in snap.post.books if b.sale_date_iso == today_iso),
+        None,
+    )
+    if today_book is None:
+        log.info("today=%s: no book today in %s, skip", today_iso, snap.week)
+        return
+
+    try:
+        push_today_book(today_book)
+    except Exception as e:
+        log.exception("daily push failed")
+        push_error(f"每日推播失敗 ({today_iso}): {e}")
+
+
 def main() -> None:
     load_dotenv()
     setup_logging()
@@ -129,9 +155,11 @@ def main() -> None:
         log.info("RUN_ON_STARTUP=true, running once now (will skip if this week already sent)")
         run_once(force=False)
 
-    day = os.environ.get("SCHEDULE_DAY", "mon")
-    hour = int(os.environ.get("SCHEDULE_HOUR", "9"))
+    day = os.environ.get("SCHEDULE_DAY", "wed")
+    hour = int(os.environ.get("SCHEDULE_HOUR", "19"))
     minute = int(os.environ.get("SCHEDULE_MINUTE", "0"))
+    daily_hour = int(os.environ.get("DAILY_HOUR", "12"))
+    daily_minute = int(os.environ.get("DAILY_MINUTE", "0"))
 
     scheduler = BlockingScheduler(timezone=TZ)
     scheduler.add_job(
@@ -139,7 +167,15 @@ def main() -> None:
         CronTrigger(day_of_week=day, hour=hour, minute=minute, timezone=TZ),
         name="weekly-kobo",
     )
-    log.info("scheduler started: every %s at %02d:%02d Asia/Taipei", day, hour, minute)
+    scheduler.add_job(
+        push_today,
+        CronTrigger(hour=daily_hour, minute=daily_minute, timezone=TZ),
+        name="daily-kobo",
+    )
+    log.info(
+        "scheduler: weekly=%s %02d:%02d, daily=%02d:%02d Asia/Taipei",
+        day, hour, minute, daily_hour, daily_minute,
+    )
     scheduler.start()
 
 
