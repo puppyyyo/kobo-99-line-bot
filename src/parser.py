@@ -26,6 +26,12 @@ log = logging.getLogger(__name__)
 DATE_RANGE_RE = re.compile(r"(\d{1,2}/\d{1,2}\s*[-~–]\s*\d{1,2}/\d{1,2})")
 # 「6/18 週四 Kobo99選書:」
 SALE_DATE_RE = re.compile(r"(\d{1,2}/\d{1,2})\s*(週[一二三四五六日])?\s*Kobo99選書")
+# 「由 Kobo • 六月 17, 2026」
+PUBLISH_DATE_RE = re.compile(r"(一|二|三|四|五|六|七|八|九|十|十一|十二)月\s*(\d{1,2}),\s*(\d{4})")
+_CN_MONTH = {
+    "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+    "七": 7, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12,
+}
 
 
 @dataclass
@@ -56,12 +62,14 @@ class Book:
 class WeeklyPost:
     title: str
     date_range: str | None
+    publish_date: str | None = None      # ISO date, e.g. "2026-06-17"
     books: list[Book] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "title": self.title,
             "date_range": self.date_range,
+            "publish_date": self.publish_date,
             "books": [b.to_dict() for b in self.books],
         }
 
@@ -70,6 +78,7 @@ class WeeklyPost:
         return cls(
             title=d["title"],
             date_range=d.get("date_range"),
+            publish_date=d.get("publish_date"),
             books=[Book.from_dict(b) for b in d.get("books", [])],
         )
 
@@ -104,6 +113,20 @@ def _extract_title_and_date(soup: BeautifulSoup) -> tuple[str, str | None]:
     m = DATE_RANGE_RE.search(title)
     date_range = m.group(1).replace(" ", "") if m else None
     return title, date_range
+
+
+def _extract_publish_date(soup: BeautifulSoup) -> str | None:
+    """從 <p class="meta">「由 Kobo • 六月 17, 2026」抽出 ISO 日期。"""
+    meta = soup.find("p", class_="meta")
+    if not meta:
+        return None
+    m = PUBLISH_DATE_RE.search(meta.get_text(" ", strip=True))
+    if not m:
+        return None
+    month = _CN_MONTH.get(m.group(1))
+    if not month:
+        return None
+    return f"{int(m.group(3)):04d}-{month:02d}-{int(m.group(2)):02d}"
 
 
 def _parse_sale_date(content_block: Tag | None) -> str | None:
@@ -161,6 +184,7 @@ def _parse_book_block(bb: Tag, sale_date: str | None) -> Book | None:
 def parse_post(html: str) -> WeeklyPost:
     soup = BeautifulSoup(html, "html.parser")
     post_title, date_range = _extract_title_and_date(soup)
+    publish_date = _extract_publish_date(soup)
 
     book_blocks = soup.find_all(class_="book-block")
     content_blocks = soup.find_all(class_="content-block")
@@ -178,6 +202,12 @@ def parse_post(html: str) -> WeeklyPost:
             books.append(b)
 
     log.info(
-        "parsed: title=%r range=%s, %d books", post_title, date_range, len(books)
+        "parsed: title=%r range=%s publish_date=%s, %d books",
+        post_title, date_range, publish_date, len(books),
     )
-    return WeeklyPost(title=post_title, date_range=date_range, books=books)
+    return WeeklyPost(
+        title=post_title,
+        date_range=date_range,
+        publish_date=publish_date,
+        books=books,
+    )
